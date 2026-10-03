@@ -81,9 +81,16 @@ export const deviceConfig: DeviceConfig = {
           ),
         },
 
-        fader: new TouchSensitiveMotorFader(surface, x + 2.5, 15.8, 2, 17.15).setControlLayer(
-          channelLayer,
-        ),
+        // Don't drive the fader down while its channel is transiently unassigned during a bank
+        // change, which would cause a visible down-and-back movement:
+        fader: new TouchSensitiveMotorFader(
+          surface,
+          x + 2.5,
+          15.8,
+          2,
+          17.15,
+          false,
+        ).setControlLayer(channelLayer),
       };
     });
 

@@ -20,6 +20,7 @@ class TouchSensitiveMotorFaderDecorator {
   constructor(
     private surface: MR_DeviceSurface,
     private fader: MR_Fader,
+    private dropFaderWhenUnassigned = true,
   ) {
     // Cubase 13 only:
     if (fader.mSurfaceValue.mTouchState) {
@@ -78,7 +79,7 @@ class TouchSensitiveMotorFaderDecorator {
 
     // Send fader down when unassigned
     this.onTitleChangeCallbacks.addCallback((context, _title1, title2) => {
-      if (title2 === "") {
+      if (title2 === "" && this.dropFaderWhenUnassigned) {
         surfaceValue.setProcessValue(context, 0);
         // `mOnProcessValueChange` isn't run on `setProcessValue()` when the fader is not assigned
         // to a mixer channel, so we manually trigger the update:
@@ -89,10 +90,17 @@ class TouchSensitiveMotorFaderDecorator {
 }
 
 export class TouchSensitiveMotorFader extends TouchSensitiveMotorFaderDecorator {
-  constructor(surface: MR_DeviceSurface, x: number, y: number, w: number, h: number) {
+  constructor(
+    surface: MR_DeviceSurface,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    dropFaderWhenUnassigned = true,
+  ) {
     const fader = surface.makeFader(x, y, w, h);
 
-    super(surface, fader);
+    super(surface, fader, dropFaderWhenUnassigned);
 
     return Object.assign(fader, this);
   }
