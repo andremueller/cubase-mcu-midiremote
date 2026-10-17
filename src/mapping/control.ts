@@ -2,6 +2,68 @@ import { config, deviceConfig } from "/config";
 import { ControlSectionSurfaceElements } from "/device-configs";
 import { MainDevice } from "/devices";
 import { GlobalState } from "/state";
+import { ContextVariable } from "/util";
+
+/**
+ * Parameter tag of the punch-in state in the transport's DirectAccess parameter list. This tag was
+ * found to be stable across Cubase 13 to 15 (see https://forums.steinberg.net/t/1030601).
+ */
+const punchInParameterTag = 4020;
+
+/**
+ * The number of idle callbacks between two DirectAccess polls of the punch-in state.
+ */
+const idleCallbacksPerPoll = 5;
+
+/**
+ * Keeps the punch button's LED in sync with the host's punch mode, which may also be changed from
+ * outside the script (e.g. via Cubase's UI or key commands). The MIDI Remote API does not provide a
+ * host value for the punch mode (and DirectAccess' `mOnParameterChange` callback is not invoked for
+ * changes made in Cubase's UI), so the DirectAccess parameter is polled in the page's idle callback.
+ */
+export function bindPunchInLed(page: MR_FactoryMappingPage, globalState: GlobalState) {
+  // DirectAccess requires MIDI Remote API 1.2 (Cubase 13) or later. Without it, the LED is only
+  // driven by the script itself (see `bindControlSection`).
+  if (!page.mHostAccess.makeDirectAccess || !page.mOnIdle) {
+    return;
+  }
+
+  const transport = page.mHostAccess.makeDirectAccess(page.mHostAccess.mTransport);
+
+  // `undefined` makes sure the first poll always updates the LED. Being a `ContextVariable`, the
+  // value is reset when the script is (re-)activated.
+  const lastPolledValue = new ContextVariable<boolean | undefined>(undefined);
+  let idleCallbacksSinceLastPoll = 0;
+
+  page.mOnActivate = (context, mapping) => {
+    transport.activate(mapping);
+  };
+  page.mOnDeactivate = (context, mapping) => {
+    transport.deactivate(mapping);
+  };
+
+  page.mOnIdle = (context, mapping) => {
+    if (++idleCallbacksSinceLastPoll < idleCallbacksPerPoll) {
+      return;
+    }
+
+    idleCallbacksSinceLastPoll = 0;
+    const objectId = transport.getBaseObjectID(mapping);
+    if (objectId < 0) {
+      return;
+    }
+
+    // Process values are discrete (0 = off, 1 = on); treating anything ≤ 0 as "off" also covers
+    // the (invalid) default process value of -1.
+    const isPunchInActive =
+      transport.getParameterProcessValue(mapping, objectId, punchInParameterTag) > 0;
+
+    if (isPunchInActive !== lastPolledValue.get(context)) {
+      lastPolledValue.set(context, isPunchInActive);
+      globalState.isAutoPunchInActive.set(context, isPunchInActive);
+    }
+  };
+}
 
 function setShiftableButtonsLedValues(
   controlSectionElements: ControlSectionSurfaceElements,
@@ -274,9 +336,9 @@ export function bindControlSection(
     .makeValueBinding(buttons.transport.cycle.mSurfaceValue, mTransport.mValue.mCycleActive)
     .setTypeToggle();
 
-  // Auto Punch In. The MIDI Remote API does not expose the punch mode as a host value, so the
-  // button's LED state is tracked by the script itself. Note that this cannot reflect changes made
-  // outside the script (e.g. via Cubase's UI or key commands).
+  // Auto Punch In. The MIDI Remote API does not expose the punch mode as a host value, so the LED
+  // is optimistically updated by the script itself. `bindPunchInLed` polls Cubase's internal punch
+  // state to also reflect changes made outside the script.
   page.makeCommandBinding(
     buttons.transport.punch.mSurfaceValue,
     "Transport",

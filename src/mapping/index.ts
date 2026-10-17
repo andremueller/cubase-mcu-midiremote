@@ -1,4 +1,4 @@
-import { bindControlSection, bindMouseValueControl } from "./control";
+import { bindControlSection, bindMouseValueControl, bindPunchInLed } from "./control";
 import { bindEncoders } from "./encoders";
 import { config } from "/config";
 import { Device, MainDevice } from "/devices";
@@ -102,6 +102,9 @@ export function makeHostMapping(
       bindControlSection(page, device, mixerBankZone, globalState);
     }
   }
+
+  // Punch button LED – once for all devices, as it polls a global host parameter
+  bindPunchInLed(page, globalState);
 
   bindEncoders(page, devices, mixerBankChannels, segmentDisplayManager, globalState);
 
