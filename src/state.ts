@@ -11,6 +11,8 @@ export const createGlobalState = () => ({
 
   isFlipModeActive: new BooleanContextVariable(),
 
+  isAutoPunchInActive: new BooleanContextVariable(),
+
   isShiftModeActive: new BooleanContextVariable<[MR_ActiveMapping]>(),
 
   areChannelMetersEnabled: new BooleanContextVariable(),

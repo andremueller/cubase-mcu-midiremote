@@ -273,7 +273,22 @@ export function bindControlSection(
   page
     .makeValueBinding(buttons.transport.cycle.mSurfaceValue, mTransport.mValue.mCycleActive)
     .setTypeToggle();
-  page.makeCommandBinding(buttons.transport.punch.mSurfaceValue, "Transport", "Auto Punch In");
+
+  // Auto Punch In. The MIDI Remote API does not expose the punch mode as a host value, so the
+  // button's LED state is tracked by the script itself. Note that this cannot reflect changes made
+  // outside the script (e.g. via Cubase's UI or key commands).
+  page.makeCommandBinding(
+    buttons.transport.punch.mSurfaceValue,
+    "Transport",
+    "Auto Punch In",
+  ).mOnValueChange = (context, _mapping, value) => {
+    if (value) {
+      globalState.isAutoPunchInActive.toggle(context);
+    }
+  };
+  globalState.isAutoPunchInActive.addOnChangeCallback((context, value) => {
+    buttons.transport.punch.setLedValue(context, +value);
+  });
 
   page.makeCommandBinding(
     buttons.transport.markers.previous.mSurfaceValue,
