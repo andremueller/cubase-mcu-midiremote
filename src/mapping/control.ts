@@ -20,47 +20,75 @@ const idleCallbacksPerPoll = 5;
  * outside the script (e.g. via Cubase's UI or key commands). The MIDI Remote API does not provide a
  * host value for the punch mode (and DirectAccess' `mOnParameterChange` callback is not invoked for
  * changes made in Cubase's UI), so the DirectAccess parameter is polled in the page's idle callback.
+ *
+ * DirectAccess requires MIDI Remote API 1.2 (Cubase 13) or later. All host interaction happens in
+ * the page callbacks and is wrapped in try/catch so that a missing or misbehaving DirectAccess
+ * implementation can never break the script – in that case, the LED is only driven by the punch
+ * button itself (see `bindControlSection`).
  */
 export function bindPunchInLed(page: MR_FactoryMappingPage, globalState: GlobalState) {
-  // DirectAccess requires MIDI Remote API 1.2 (Cubase 13) or later. Without it, the LED is only
-  // driven by the script itself (see `bindControlSection`).
-  if (!page.mHostAccess.makeDirectAccess || !page.mOnIdle) {
-    return;
-  }
-
-  const transport = page.mHostAccess.makeDirectAccess(page.mHostAccess.mTransport);
+  let transport: MR_HostObjectDirectAccess | undefined;
 
   // `undefined` makes sure the first poll always updates the LED. Being a `ContextVariable`, the
   // value is reset when the script is (re-)activated.
   const lastPolledValue = new ContextVariable<boolean | undefined>(undefined);
   let idleCallbacksSinceLastPoll = 0;
 
-  page.mOnActivate = (context, mapping) => {
-    transport.activate(mapping);
+  const disableHostSync = (reason: string, error: unknown) => {
+    transport = undefined;
+    console.log(
+      `${reason} The punch button's LED will not follow punch mode changes made outside the ` +
+        `script. (${error})`,
+    );
   };
+
+  page.mOnActivate = (context, mapping) => {
+    try {
+      if (!page.mHostAccess.makeDirectAccess) {
+        return;
+      }
+
+      transport = page.mHostAccess.makeDirectAccess(page.mHostAccess.mTransport);
+      transport.activate(mapping);
+    } catch (error) {
+      disableHostSync("Failed to set up DirectAccess on the transport.", error);
+    }
+  };
+
   page.mOnDeactivate = (context, mapping) => {
-    transport.deactivate(mapping);
+    try {
+      transport?.deactivate(mapping);
+    } catch (error) {
+      console.log(`Failed to deactivate DirectAccess on the transport. (${error})`);
+    }
+
+    transport = undefined;
   };
 
   page.mOnIdle = (context, mapping) => {
-    if (++idleCallbacksSinceLastPoll < idleCallbacksPerPoll) {
+    if (!transport || ++idleCallbacksSinceLastPoll < idleCallbacksPerPoll) {
       return;
     }
 
     idleCallbacksSinceLastPoll = 0;
-    const objectId = transport.getBaseObjectID(mapping);
-    if (objectId < 0) {
-      return;
-    }
 
-    // Process values are discrete (0 = off, 1 = on); treating anything ≤ 0 as "off" also covers
-    // the (invalid) default process value of -1.
-    const isPunchInActive =
-      transport.getParameterProcessValue(mapping, objectId, punchInParameterTag) > 0;
+    try {
+      const objectId = transport.getBaseObjectID(mapping);
+      if (objectId < 0) {
+        return;
+      }
 
-    if (isPunchInActive !== lastPolledValue.get(context)) {
-      lastPolledValue.set(context, isPunchInActive);
-      globalState.isAutoPunchInActive.set(context, isPunchInActive);
+      // Process values are discrete (0 = off, 1 = on); treating anything ≤ 0 as "off" also covers
+      // the (invalid) default process value of -1.
+      const isPunchInActive =
+        transport.getParameterProcessValue(mapping, objectId, punchInParameterTag) > 0;
+
+      if (isPunchInActive !== lastPolledValue.get(context)) {
+        lastPolledValue.set(context, isPunchInActive);
+        globalState.isAutoPunchInActive.set(context, isPunchInActive);
+      }
+    } catch (error) {
+      disableHostSync("Failed to poll the punch mode.", error);
     }
   };
 }
